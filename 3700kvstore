@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+
+import argparse, socket, time, json, select, struct, sys, math, os, random
+
+BROADCAST = "FFFF"
+
+class Replica:
+    def __init__(self, port, id, others):
+        self.port = port
+        self.id = id
+        self.others = others
+        self.follower = True
+        self.leader = False
+        self.candidate = False
+        self.election_timeout = random.uniform(.150, .300)
+
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.socket.bind(('localhost', 0))
+
+        print("Replica %s starting up" % self.id, flush=True)
+        hello = { "src": self.id, "dst": BROADCAST, "leader": BROADCAST, "type": "hello" }
+        self.send(hello)
+        print("Sent hello message: %s" % hello, flush=True)
+
+    def send(self, message):
+        self.socket.sendto(json.dumps(message).encode('utf-8'), ('localhost', self.port))
+
+    def respond_to_client(self, msg):
+        failmsg = {"src": str(self.id), "dst": msg['src'], "leader": msg['leader'], "type": "fail", "MID": msg['MID']}
+        self.send(failmsg)
+
+    def begin_election(self):
+        if self.election_timeout <= 0:
+            self.follower = False
+            self.candidate = True
+            self.send_request_vote_RPC()
+
+
+    def send_request_vote_RPC(self):
+        request_vote_rpc = {"src": str(self.id), "dst": BROADCAST, 'type': 'request_vote_rpc', 'MID': '1'}
+        self.send(request_vote_rpc)
+            
+    def reset_election_timeout(self):
+        self.election_timeout = random.uniform(.150, .300)
+        
+    def run(self):
+        while True:
+            data, addr = self.socket.recvfrom(65535) # Receives maximum number of bytes from the socket that this replicate is listening on, blocking
+            msg = data.decode('utf-8')
+            msg = json.loads(msg)
+
+            print("Received message '%s'" % (msg,), flush=True)
+
+            self.respond_to_client(msg)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='run a key-value store')
+    parser.add_argument('port', type=int, help="Port number to communicate")
+    parser.add_argument('id', type=str, help="ID of this replica")
+    parser.add_argument('others', metavar='others', type=str, nargs='+', help="IDs of other replicas")
+    args = parser.parse_args()
+    replica = Replica(args.port, args.id, args.others)
+    replica.run()
