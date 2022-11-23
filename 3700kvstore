@@ -9,6 +9,7 @@ class Replica:
         self.port = port
         self.id = id
         self.others = others
+        self.leader_id = "FFFF"
         self.follower = True
         self.leader = False
         self.candidate = False
@@ -34,7 +35,11 @@ class Replica:
             self.follower = False
             self.candidate = True
             self.send_request_vote_RPC()
-
+            # wait certain amount of time to get votes?
+            if (self.am_leader()):
+                # do stuff
+            else:
+                # do other stuff, set new leader
 
     def send_request_vote_RPC(self):
         request_vote_rpc = {"src": str(self.id), "dst": BROADCAST, 'type': 'request_vote_rpc', 'MID': '1'}
