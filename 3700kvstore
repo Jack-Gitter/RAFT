@@ -30,13 +30,16 @@ class Replica:
     def send(self, message):
         self.socket.sendto(json.dumps(message).encode('utf-8'), ('localhost', self.port))
 
-    def respond_to_client(self, msg):
+    def respond_to_put(self, msg):
         response = {}
         if self.leader_id != self.id:
             response = {"src": str(self.id), "dst": msg['src'], "leader": self.leader_id, "type": "redirect", "MID": msg['MID']} 
-        #else: 
-            #response = {"src": str(self.id), "dst": msg['src'], "leader": self.leader_id, "type": "fail", "MID": msg['MID']}
-            #response = {"src": "<ID>", "dst": "<ID>", "leader": "<ID>", "type": "ok", "MID": "<a unique string>", "value": "<value of the key>"} 
+        self.send(response)
+
+    def respond_to_get(self, msg):
+        response = {}
+        if self.leader_id != self.id:
+            response = {"src": str(self.id), "dst": msg['src'], "leader": self.leader_id, "type": "redirect", "MID": msg['MID']} 
         self.send(response)
 
     def begin_election(self):
@@ -99,6 +102,8 @@ class Replica:
         self.leader = False
         self.candidate = False
         self.leader_id = msg['leader']
+        self.election_timeout = random.uniform(.3, .6)
+        
 
     def handle_vote_response(self, msg):
         self.votes.append(msg)
@@ -115,6 +120,7 @@ class Replica:
                 msg = data.decode('utf-8')
                 msg = json.loads(msg)
 
+                print("Received message '%s'" % (msg,), flush=True)
                 if self.leader:
                     self.send_heartbeat()
 
@@ -124,15 +130,16 @@ class Replica:
                     self.handle_heartbeat(msg)
                 elif msg['type'] == 'vote_response' and self.candidate:
                     self.handle_vote_response(msg)
-                elif msg['type'] == 'put' or msg['type'] == 'get':
-                    print("Received message '%s'" % (msg,), flush=True)
-                    self.respond_to_client(msg)
+                elif msg['type'] == 'put':
+                    self.respond_to_put(msg)
+                elif msg['type'] == 'get':
+                    self.respond_to_get(msg)
 
             # If we have timed out
             if len(socks) == 0: 
                 self.begin_election()
                 self.send_request_vote_RPC()
-                self.election_timeout = random.uniform(5, 10)
+                self.election_timeout = random.uniform(.3, .6)
                 # once any given thing becomes leader, send out a heartbeat and then that will put all the other things into follower mode!!!
                 
                 
