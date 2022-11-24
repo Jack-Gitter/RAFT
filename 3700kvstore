@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import argparse, socket, time, json, select, struct, sys, math, os, random
+import argparse, socket, time, json, select, struct, sys, math, os, random, math
 
 BROADCAST = "FFFF"
 
@@ -13,7 +13,10 @@ class Replica:
         self.follower = True
         self.leader = False
         self.candidate = False
-        self.election_timeout = random.uniform(.150, .300)
+        self.election_timeout = random.uniform(.3, .6)
+        self.term = 1
+        self.log = {}
+        self.votes = []
 
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.bind(('localhost', 0))
@@ -31,32 +34,90 @@ class Replica:
         self.send(failmsg)
 
     def begin_election(self):
-        if self.election_timeout <= 0:
-            self.follower = False
-            self.candidate = True
-            self.send_request_vote_RPC()
-            # wait certain amount of time to get votes?
-            if (self.am_leader()):
-                # do stuff
-            else:
-                # do other stuff, set new leader
+        self.candidate = True
+        self.follower = False
+        self.leader = False
 
     def send_request_vote_RPC(self):
-        request_vote_rpc = {"src": str(self.id), "dst": BROADCAST, 'type': 'request_vote_rpc', 'MID': '1'}
+        request_vote_rpc = {"src": str(self.id),
+                "dst": BROADCAST,
+                "leader": "FFFF",
+                'type': 'request_vote_rpc',
+                'MID': '1',
+                "last_log_idx": str(len(self.log)-1),
+                "term":self.term}
+            
+
+        print("sending vote request '%s'" % (request_vote_rpc,), flush=True)
         self.send(request_vote_rpc)
             
-    def reset_election_timeout(self):
-        self.election_timeout = random.uniform(.150, .300)
-        
+    def send_heartbeat(self):
+        heartbeat = {"src": str(self.id), "dst": BROADCAST, "leader": str(self.id), "type": "heartbeat", "MID": '-1'}
+        self.send(heartbeat)
+
+    def analyze_votes(self):
+        count = 0
+        for vote in self.votes:
+            if vote['vote_granted'] == True:
+                count+=1
+        if count >= math.ceil(len(self.others)/2):
+            self.leader = True
+            self.candidate = False
+            self.follower = False
+            self.send_heartbeat()
+            print("I Am the leader!!!")
+        else:
+            self.leader = False
+            self.candidate = False
+            self.follower = True
+            print("I am  a follower")
+
+
+    def respond_to_vote_request(self, msg):
+        response = {"src": str(self.id), "dst": msg['src'], "leader": "FFFF", "MID":"1", "type": "vote_response", "vote_granted": True}
+        print("sending vote response '%s'" % (response,), flush=True)
+        self.send(response)
+
+
     def run(self):
+        # do an initial election here
+
         while True:
-            data, addr = self.socket.recvfrom(65535) # Receives maximum number of bytes from the socket that this replicate is listening on, blocking
-            msg = data.decode('utf-8')
-            msg = json.loads(msg)
+            socks = select.select([self.socket], [], [], self.election_timeout)[0] # add a timeout here so that this is the timeout to start a new election 
+            for sock in socks:
+                data, addr = sock.recvfrom(65535) # Receives maximum number of bytes from the socket that this replicate is listening on, blocking
+                msg = data.decode('utf-8')
+                msg = json.loads(msg)
 
-            print("Received message '%s'" % (msg,), flush=True)
+                if self.leader:
+                    self.send_heartbeat()
+                print("Received message '%s'" % (msg,), flush=True)
+                if msg['type'] == 'request_vote_rpc':
+                    self.respond_to_vote_request(msg)
+                elif msg['type'] == 'heartbeat':
+                    self.votes = []
+                    self.follower = True
+                    self.leader = False
+                    self.candidate = False
+                elif msg['type'] == 'vote_response' and self.candidate:
+                    self.votes.append(msg)
+                    if len(self.votes) == len(self.others):
+                        self.analyze_votes()
+                        self.votes = []
+                    # put self back into follower mode
+                else:
+                    print("Received message '%s'" % (msg,), flush=True)
+                    #self.respond_to_client(msg)
 
-            self.respond_to_client(msg)
+            # If we have timed out
+            if len(socks) == 0: 
+                self.begin_election()
+                self.send_request_vote_RPC()
+                self.election_timeout = random.uniform(5, 10)
+                # once any given thing becomes leader, send out a heartbeat and then that will put all the other things into follower mode!!!
+                
+                
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='run a key-value store')
