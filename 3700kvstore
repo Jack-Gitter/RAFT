@@ -43,6 +43,8 @@ class Replica:
         self.send(response)
 
     def begin_election(self):
+        print("starting new election -------------------------------")
+        self.leader_id = "FFFF"
         self.voted_for = None
         self.candidate = True
         self.follower = False
@@ -103,6 +105,7 @@ class Replica:
         self.candidate = False
         self.leader_id = msg['leader']
         self.election_timeout = random.uniform(.3, .6)
+        self.voted_for = None
         
 
     def handle_vote_response(self, msg):
@@ -121,8 +124,8 @@ class Replica:
                 msg = json.loads(msg)
 
                 print("Received message '%s'" % (msg,), flush=True)
-                if self.leader:
-                    self.send_heartbeat()
+                #if self.leader:
+                    #self.send_heartbeat()
 
                 if msg['type'] == 'request_vote_rpc' and self.voted_for == None:
                     self.respond_to_vote_request(msg)
