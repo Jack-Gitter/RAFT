@@ -13,7 +13,7 @@ class Replica:
         self.follower = True
         self.leader = False
         self.candidate = False
-        self.election_timeout = random.uniform(.150, .300)
+        self.election_timeout = random.uniform(1, 2)
         self.term = 1
         self.log = {}
         self.votes = []
@@ -77,7 +77,6 @@ class Replica:
             self.follower = False
             self.leader_id = self.id
             print("I Am the leader!!!", flush=True)
-            self.send_heartbeat()
         else:
             self.leader = False
             self.candidate = False
@@ -98,7 +97,7 @@ class Replica:
 
 
     def handle_heartbeat(self, msg):
-        self.election_timeout = random.uniform(.150, .300)
+        self.election_timeout = random.uniform(1, 2)
         self.votes = []
         self.follower = True
         self.leader = False
@@ -117,7 +116,7 @@ class Replica:
         while True:
             socks = []
             if self.leader:
-                socks = select.select([self.socket], [], [], .09)[0]
+                socks = select.select([self.socket], [], [], .5)[0]
             else:
                 socks = select.select([self.socket], [], [], self.election_timeout)[0]
 
@@ -125,9 +124,6 @@ class Replica:
                 data, addr = sock.recvfrom(65535) 
                 msg = data.decode('utf-8')
                 msg = json.loads(msg)
-
-                if self.leader:
-                    self.send_heartbeat()
 
                 print("Received message '%s'" % (msg,), flush=True)
 
@@ -144,12 +140,12 @@ class Replica:
                     self.respond_to_get(msg)
 
             # If we have timed out
-            if self.leader and len(socks) == 0:
+            if self.leader:
                 self.send_heartbeat()
             elif len(socks) == 0: 
                 self.begin_election()
                 self.send_request_vote_RPC()
-                self.election_timeout = random.uniform(.150, .300)
+                self.election_timeout = random.uniform(1, 2)
                 # once any given thing becomes leader, send out a heartbeat and then that will put all the other things into follower mode!!!
                 
                 
