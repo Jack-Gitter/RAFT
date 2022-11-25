@@ -43,12 +43,13 @@ class Replica:
         self.send(response)
 
     def begin_election(self):
-        print("starting new election -------------------------------")
+        print("starting new election -------------------------------", flush=True)
         self.leader_id = "FFFF"
         self.voted_for = None
         self.candidate = True
         self.follower = False
         self.leader = False
+        self.term+=1
 
     def send_request_vote_RPC(self):
         request_vote_rpc = {"src": str(self.id),
@@ -59,11 +60,12 @@ class Replica:
                 "last_log_idx": str(len(self.log)-1),
                 "term":self.term}
             
+        self.voted_for = self.id
         print("sending vote request '%s'" % (request_vote_rpc,), flush=True)
         self.send(request_vote_rpc)
             
     def send_heartbeat(self):
-        heartbeat = {"src": str(self.id), "dst": BROADCAST, "leader": str(self.id), "type": "heartbeat", "MID": '-1'}
+        heartbeat = {"src": str(self.id), "dst": BROADCAST, "leader": str(self.id), "type": "heartbeat", "term": self.term, "MID": '-1'}
         self.send(heartbeat)
 
     def analyze_votes(self):
@@ -75,6 +77,7 @@ class Replica:
             self.leader = True
             self.candidate = False
             self.follower = False
+            self.voted_for = None
             self.leader_id = self.id
             print("I Am the leader!!!", flush=True)
         else:
@@ -86,7 +89,7 @@ class Replica:
     def respond_to_vote_request(self, msg):
         vote_response = False
 
-        if msg['term'] >= self.term:
+        if msg['term'] >= self.term and self.voted_for == None:
             vote_response = True
             
         response = {"src": str(self.id), "dst": msg['src'], "leader": self.leader_id, "MID":"1", "type": "vote_response", "vote_granted": vote_response}
@@ -97,13 +100,15 @@ class Replica:
 
 
     def handle_heartbeat(self, msg):
-        self.election_timeout = random.uniform(1, 2)
-        self.votes = []
-        self.follower = True
-        self.leader = False
-        self.candidate = False
-        self.leader_id = msg['leader']
-        self.voted_for = None
+        if msg['term'] >= self.term:
+            self.election_timeout = random.uniform(1, 2)
+            self.votes = []
+            self.term = msg['term']
+            self.follower = True
+            self.leader = False
+            self.candidate = False
+            self.voted_for = None
+            self.leader_id = msg['leader']
         
 
     def handle_vote_response(self, msg):
@@ -127,22 +132,21 @@ class Replica:
 
                 print("Received message '%s'" % (msg,), flush=True)
 
-                if msg['type'] == 'request_vote_rpc' and self.voted_for == None:
+                if msg['type'] == 'request_vote_rpc':
                     self.respond_to_vote_request(msg)
                 elif msg['type'] == 'heartbeat':
                     self.handle_heartbeat(msg)
                 elif msg['type'] == 'vote_response' and self.candidate:
-                    print('we are going here')
                     self.handle_vote_response(msg)
                 elif msg['type'] == 'put':
                     self.respond_to_put(msg)
                 elif msg['type'] == 'get':
                     self.respond_to_get(msg)
 
-            # If we have timed out
             if self.leader:
                 self.send_heartbeat()
-            elif len(socks) == 0: 
+                self.election_timeout = random.uniform(1,2)
+            elif len(socks) == 0: # put a check here for if the election timeout has expired, cause we might be getting message from client but not leader
                 self.begin_election()
                 self.send_request_vote_RPC()
                 self.election_timeout = random.uniform(1, 2)
