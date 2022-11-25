@@ -142,11 +142,12 @@ class Replica:
                     self.respond_to_put(msg)
                 elif msg['type'] == 'get':
                     self.respond_to_get(msg)
-
             if self.leader:
                 self.send_heartbeat()
                 self.election_timeout = random.uniform(1,2)
-            elif len(socks) == 0: # put a check here for if the election timeout has expired, cause we might be getting message from client but not leader
+            # need an actual check here to determine if we haven't received a heartbeat in x amount of time, cause we could be receving messages from client
+            # put a check here for if the election timeout has expired, cause we might be getting message from client but not leader
+            elif len(socks) == 0 or self.election_has_timed_out() == True: 
                 self.begin_election()
                 self.send_request_vote_RPC()
                 self.election_timeout = random.uniform(1, 2)
