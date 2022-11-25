@@ -18,6 +18,7 @@ class Replica:
         self.log = {}
         self.votes = []
         self.voted_for = None
+        self.currtime = 0
 
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.bind(('localhost', 0))
@@ -109,6 +110,7 @@ class Replica:
             self.candidate = False
             self.voted_for = None
             self.leader_id = msg['leader']
+            self.currtime = time.time()
         
 
     def handle_vote_response(self, msg):
@@ -118,7 +120,7 @@ class Replica:
             self.votes = []
 
     def run(self):
-        currtime = time.time()
+        self.currtime = time.time()
         while True:
             socks = []
             if self.leader:
@@ -149,12 +151,15 @@ class Replica:
             # need an actual check here to determine if we haven't received a heartbeat in x amount of time, cause we could be receving messages from client
             # put a check here for if the election timeout has expired, cause we might be getting message from client but not leader
             #elif len(socks) == 0 or self.election_has_timed_out() == True: 
-            #elif len(socks) == 0 or time.time() - currtime >= self.election_timeout:
-            elif len(socks) == 0: 
+            elif len(socks) == 0 or time.time() - self.currtime >= self.election_timeout:
+                print("currtime: " + str(self.currtime))
+                print("real time: " + str(time.time()))
+
+            #elif len(socks) == 0: 
                 self.begin_election()
                 self.send_request_vote_RPC()
                 self.election_timeout = random.uniform(1, 2)
-                #currtime = time.time()
+                self.currtime = time.time()
                 # once any given thing becomes leader, send out a heartbeat and then that will put all the other things into follower mode!!!
                 
                 
