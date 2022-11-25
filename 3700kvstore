@@ -53,7 +53,6 @@ class Replica:
 
     def begin_election(self):
         print("starting new election -------------------------------", flush=True)
-        self.leader_id = "FFFF"
         self.voted_for = None
         self.candidate = True
         self.follower = False
