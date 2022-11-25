@@ -32,15 +32,23 @@ class Replica:
         self.socket.sendto(json.dumps(message).encode('utf-8'), ('localhost', self.port))
 
     def respond_to_put(self, msg):
+        self.log[msg['key']] = msg['value']
         response = {}
+
         if self.leader_id != self.id:
             response = {"src": str(self.id), "dst": msg['src'], "leader": self.leader_id, "type": "redirect", "MID": msg['MID']} 
+        else:
+            response = {"src": str(self.id), "dst": msg['src'], "leader": str(self.id), "type": "ok", "MID": msg['MID']}
+
         self.send(response)
 
     def respond_to_get(self, msg):
+        value = self.log[msg['key']]
         response = {}
         if self.leader_id != self.id:
             response = {"src": str(self.id), "dst": msg['src'], "leader": self.leader_id, "type": "redirect", "MID": msg['MID']} 
+        else:
+            response = {"src": str(self.id), "dst": msg['src'], "leader": str(self.id), "type": "ok", "MID": msg['MID'], "value": str(value)}
         self.send(response)
 
     def begin_election(self):
@@ -145,22 +153,15 @@ class Replica:
                     self.respond_to_put(msg)
                 elif msg['type'] == 'get':
                     self.respond_to_get(msg)
+
             if self.leader:
                 self.send_heartbeat()
                 self.election_timeout = random.uniform(1,2)
-            # need an actual check here to determine if we haven't received a heartbeat in x amount of time, cause we could be receving messages from client
-            # put a check here for if the election timeout has expired, cause we might be getting message from client but not leader
-            #elif len(socks) == 0 or self.election_has_timed_out() == True: 
             elif len(socks) == 0 or time.time() - self.currtime >= self.election_timeout:
-                print("currtime: " + str(self.currtime))
-                print("real time: " + str(time.time()))
-
-            #elif len(socks) == 0: 
                 self.begin_election()
                 self.send_request_vote_RPC()
                 self.election_timeout = random.uniform(1, 2)
                 self.currtime = time.time()
-                # once any given thing becomes leader, send out a heartbeat and then that will put all the other things into follower mode!!!
                 
                 
 
