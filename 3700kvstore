@@ -43,11 +43,11 @@ class Replica:
         self.send(response)
 
     def respond_to_get(self, msg):
-        value = self.log[msg['key']]
         response = {}
         if self.leader_id != self.id:
             response = {"src": str(self.id), "dst": msg['src'], "leader": self.leader_id, "type": "redirect", "MID": msg['MID']} 
         else:
+            value = self.log[msg['key']]
             response = {"src": str(self.id), "dst": msg['src'], "leader": str(self.id), "type": "ok", "MID": msg['MID'], "value": str(value)}
         self.send(response)
 
