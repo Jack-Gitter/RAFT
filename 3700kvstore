@@ -42,6 +42,9 @@ class Replica:
 
         self.send(response)
 
+        response = {"src": str(self.id), "dst": BROADCAST, "leader": str(self.leader_id), "type": "append_rpc", "MID": msg['MID']}
+        self.send(response)
+
     def respond_to_get(self, msg):
         response = {}
         if self.leader_id != self.id:
@@ -53,11 +56,10 @@ class Replica:
 
     def begin_election(self):
         print("starting new election -------------------------------", flush=True)
-        self.voted_for = None
+        self.term+=1
         self.candidate = True
         self.follower = False
         self.leader = False
-        self.term+=1
 
     def send_request_vote_RPC(self):
         request_vote_rpc = {"src": str(self.id),
@@ -68,15 +70,20 @@ class Replica:
                 "last_log_idx": str(len(self.log)-1),
                 "term":self.term}
             
-        self.voted_for = self.id
-        self_vote = {"vote_granted": True}
-        self.votes.append(self_vote)
+        if self.voted_for == None:
+            self.voted_for = self.id
+            self_vote = {"vote_granted": True}
+            self.votes.append(self_vote)
+
         print("sending vote request '%s'" % (request_vote_rpc,), flush=True)
         self.send(request_vote_rpc)
             
     def send_heartbeat(self):
+        self.currtime = time.time()
+        self.election_timeout = random.uniform(1, 2)
         self.votes = []
         heartbeat = {"src": str(self.id), "dst": BROADCAST, "leader": str(self.id), "type": "heartbeat", "term": self.term, "MID": '-1'}
+        print("sending heartbeat message")
         self.send(heartbeat)
 
     def analyze_votes(self):
@@ -84,14 +91,13 @@ class Replica:
         for vote in self.votes:
             if vote['vote_granted'] == True:
                 count+=1
-        if count >= math.ceil(len(self.others)/2):
+        if count > math.ceil(len(self.others)/2):
             self.leader = True
             self.candidate = False
             self.follower = False
             self.voted_for = None
             self.leader_id = self.id
             print("I Am the leader!!!", flush=True)
-
 
     def respond_to_vote_request(self, msg):
         vote_response = False
@@ -100,10 +106,10 @@ class Replica:
             vote_response = True
             
         response = {"src": str(self.id), "dst": msg['src'], "leader": self.leader_id, "MID":"1", "type": "vote_response", "vote_granted": vote_response}
-        self.send(response)
         self.voted_for = msg['src']
-
         print("sending vote response '%s'" % (response,), flush=True)
+        self.send(response)
+
 
 
     def handle_heartbeat(self, msg):
@@ -152,8 +158,9 @@ class Replica:
                     self.respond_to_get(msg)
 
             if self.leader:
-                self.send_heartbeat()
                 self.election_timeout = random.uniform(1,2)
+                if time.time() - self.currtime >= self.election_timeout/2:
+                    self.send_heartbeat()
             elif len(socks) == 0 or time.time() - self.currtime >= self.election_timeout:
                 self.begin_election()
                 self.send_request_vote_RPC()
