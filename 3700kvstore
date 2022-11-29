@@ -16,9 +16,17 @@ class Replica:
         self.election_timeout = random.uniform(.150, .300)
         self.term = 1
 
+        self.next_indexes = {}
+        for other in self.others:
+            self.next_indexes[other] = 0
+
         self.log_values = {}
         self.log_terms = {}
         self.log_indexes = {}
+
+        self.state_machine_values = {}
+        self.state_machine_terms = {}
+        self.state_machine_indexes = {}
 
         self.votes = []
         self.voted_for = None
@@ -40,9 +48,11 @@ class Replica:
         self.send(response)
 
     def respond_to_put(self, msg):
-        self.log_values[msg['key']] = msg['value']
-        self.log_terms[msg['key']] = self.term
-        self.log_indexes[msg['key']] = len(self.log_values)-1
+        if self.leader:
+            self.log_values[msg['key']] = msg['value']
+            self.log_terms[msg['key']] = self.term
+            self.log_indexes[msg['key']] = len(self.log_values)-1
+
         response = {}
 
         if self.leader_id != self.id:
@@ -142,7 +152,6 @@ class Replica:
 
     def replicate_log(self, msg):
         self.log_values[msg['key']] = msg['value']
-
 
     def run(self):
         self.currtime = time.time()
