@@ -15,10 +15,13 @@ class Replica:
         self.candidate = False
         self.election_timeout = random.uniform(.150, .300)
         self.term = 1
+        self.unique_MID = 912312
 
         self.next_indexes = {}
         for other in self.others:
             self.next_indexes[other] = 0
+
+        self.append_entry_rpc_responses = {}
 
         self.log_values = {}
         self.log_terms = {}
@@ -44,26 +47,24 @@ class Replica:
         self.socket.sendto(json.dumps(message).encode('utf-8'), ('localhost', self.port))
 
     def send_append_entry_rpc(self, msg):
-        response = {"src": str(self.id), "dst": BROADCAST, "leader": str(self.leader_id), "type": "append_entry_rpc", "MID": msg['MID'], "key": msg['key'], "value": msg['value']}
+        response = {"src": str(self.id), "dst": BROADCAST, "leader": str(self.leader_id), 'client': msg['src'],
+                "type": "append_entry_rpc", "MID": msg['MID'], "key": msg['key'], "value": msg['value']}
         self.send(response)
 
     def respond_to_put(self, msg):
-        if self.leader:
+        response = {}
+        # Send a redirect if we are not the leader, otherwise add the message to our log, and send append_entry_rpcs
+        if self.leader_id != self.id:
+            response = {"src": str(self.id), "dst": msg['src'], "leader": self.leader_id, "type": "redirect", "MID": msg['MID']} 
+            self.send(response)
+        else:
             self.log_values[msg['key']] = msg['value']
             self.log_terms[msg['key']] = self.term
             self.log_indexes[msg['key']] = len(self.log_values)-1
+            self.send_append_entry_rpc(msg)
 
-        response = {}
-
-        if self.leader_id != self.id:
-            response = {"src": str(self.id), "dst": msg['src'], "leader": self.leader_id, "type": "redirect", "MID": msg['MID']} 
-        else:
-            response = {"src": str(self.id), "dst": msg['src'], "leader": str(self.id), "type": "ok", "MID": msg['MID']}
-
-        self.send(response)
 
         # Send append_entry_rpc to replicas so they can update their logs
-        self.send_append_entry_rpc(msg)
 
     def respond_to_get(self, msg):
         response = {}
@@ -87,10 +88,11 @@ class Replica:
                 "dst": BROADCAST,
                 "leader": self.leader_id,
                 'type': 'request_vote_rpc',
-                'MID': '1',
+                'MID': str(self.unique_MID),
                 "last_log_idx": str(len(self.log_values)-1),
                 "term":self.term}
             
+        self.unique_MID+=1
         if self.voted_for == None:
             self.voted_for = self.id
             self_vote = {"vote_granted": True}
@@ -102,8 +104,9 @@ class Replica:
     def send_heartbeat(self):
         self.currtime = time.time()
         self.votes = []
-        heartbeat = {"src": str(self.id), "dst": BROADCAST, "leader": str(self.id), "type": "heartbeat", "term": self.term, "MID": '-1'}
-        print("sending heartbeat message")
+        heartbeat = {"src": str(self.id), "dst": BROADCAST, "leader": str(self.id), "type": "heartbeat", "term": self.term, "MID": str(self.unique_MID)}
+        self.unique_MID+=1
+        print("sending heartbeat message", flush=True)
         self.send(heartbeat)
 
     def analyze_votes(self):
@@ -126,12 +129,11 @@ class Replica:
         if msg['term'] >= self.term and self.voted_for == None:
             vote_response = True
             
-        response = {"src": str(self.id), "dst": msg['src'], "leader": self.leader_id, "MID":"1", "type": "vote_response", "vote_granted": vote_response}
+        response = {"src": str(self.id), "dst": msg['src'], "leader": self.leader_id, "MID":str(self.unique_MID), "type": "vote_response", "vote_granted": vote_response}
+        self.unique_MID+=1
         self.voted_for = msg['src']
         print("sending vote response '%s'" % (response,), flush=True)
         self.send(response)
-
-
 
     def handle_heartbeat(self, msg):
         if msg['term'] >= self.term:
@@ -150,8 +152,49 @@ class Replica:
         self.votes.append(msg)
         self.analyze_votes()
 
+    def send_append_confirmation(self, msg):
+        msg = {"src": str(self.id), "dst": str(self.leader_id), 'key': msg['key'], 'value': msg['value'], 'client': msg['client'], "leader": str(self.leader_id), "type": "append_entry_rpc_response", "term": self.term, "MID": msg['MID'], "status": 'ok'}
+        self.send(msg)
+
     def replicate_log(self, msg):
-        self.log_values[msg['key']] = msg['value']
+        if not self.leader:
+            self.log_values[msg['key']] = msg['value']
+            self.log_terms[msg['key']] = self.term
+            self.log_indexes[msg['key']] = len(self.log_values)-1
+            self.send_append_confirmation(msg)
+        # here we want to send a confirmation to the leader that we have added this log
+
+
+
+
+
+    # todo -- add unique MIDs for every append entry rpc message and response right?
+    # add the key and value into the append_entry_rpc message
+
+
+
+
+
+    def try_to_commit(self, msg):
+        if msg['status'] == 'ok':
+            self.append_entry_rpc_responses[msg['MID']] = msg['src']
+
+        # we can commit and tell the user we have commited
+        if len(self.append_entry_rpc_responses[msg['MID']]) > len(self.others)/2:
+            self.state_machine_values[msg['key']] = msg['value']
+            self.state_machine_terms[msg['key']] = self.term
+            self.state_machine_indexes[msg['key']] = len(self.state_machine_values)-1
+            # send an ok back to the client
+            response = {"src": str(self.id), "dst": msg['client'], "leader": str(self.id), "type": "ok", "MID": msg['MID']}
+            self.send(response)
+            self.append_entry_rpc_responses[msg['MID']] = {}
+
+
+        # basically here we check if majority of the servers have received the data message. 
+        # if they have, then we commit this to our state machine, and we send a message to followers that we have commited the message
+        # also send a message to client that we have commited the message. But somehow keep track of which followers have commited it, and which haven't. 
+        # for those who havent commited that message, keep sending them the append_rpc until we get back all repsonses
+        # keep a dictionary of mids to list of followers, where the followers is everyone who has responded to the append_entry_rpc
 
     def run(self):
         self.currtime = time.time()
@@ -181,6 +224,8 @@ class Replica:
                     self.respond_to_get(msg)
                 elif msg['type'] == 'append_entry_rpc' and not self.leader:
                     self.replicate_log(msg)
+                elif msg['type'] == 'append_entry_rpc_response':
+                    self.try_to_commit(msg)
 
             if self.leader:
                 self.election_timeout = random.uniform(.150,.300)
@@ -191,9 +236,6 @@ class Replica:
                 self.send_request_vote_RPC()
                 self.election_timeout = random.uniform(.150, .300)
                 self.currtime = time.time()
-                
-                
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='run a key-value store')
