@@ -31,6 +31,10 @@ class Replica:
     def send(self, message):
         self.socket.sendto(json.dumps(message).encode('utf-8'), ('localhost', self.port))
 
+    def send_append_entry_rpc(self, msg):
+        response = {"src": str(self.id), "dst": BROADCAST, "leader": str(self.leader_id), "type": "append_entry_rpc", "MID": msg['MID'], "key": msg['key'], "value": msg['value']}
+        self.send(response)
+
     def respond_to_put(self, msg):
         self.log[msg['key']] = msg['value']
         response = {}
@@ -42,8 +46,8 @@ class Replica:
 
         self.send(response)
 
-        response = {"src": str(self.id), "dst": BROADCAST, "leader": str(self.leader_id), "type": "append_rpc", "MID": msg['MID']}
-        self.send(response)
+        # Send append_entry_rpc to replicas so they can update their logs
+        self.send_append_entry_rpc(msg)
 
     def respond_to_get(self, msg):
         response = {}
@@ -97,6 +101,7 @@ class Replica:
             self.voted_for = None
             self.leader_id = self.id
             print("I Am the leader!!!", flush=True)
+            self.send_heartbeat()
 
     def respond_to_vote_request(self, msg):
         vote_response = False
@@ -128,6 +133,10 @@ class Replica:
         self.votes.append(msg)
         self.analyze_votes()
 
+    def replicate_log(self, msg):
+        self.log[msg['key']] = msg['value']
+
+
     def run(self):
         self.currtime = time.time()
         while True:
@@ -154,6 +163,8 @@ class Replica:
                     self.respond_to_put(msg)
                 elif msg['type'] == 'get':
                     self.respond_to_get(msg)
+                elif msg['type'] == 'append_entry_rpc' and not self.leader:
+                    self.replicate_log(msg)
 
             if self.leader:
                 self.election_timeout = random.uniform(1,2)
