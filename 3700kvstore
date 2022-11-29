@@ -176,18 +176,23 @@ class Replica:
 
 
     def try_to_commit(self, msg):
-        if msg['status'] == 'ok':
-            self.append_entry_rpc_responses[msg['MID']] = msg['src']
 
+        print('trying to commit msg with msg id: ' + str(msg['MID']))
+        if msg['status'] == 'ok':
+            if msg['MID'] not in self.append_entry_rpc_responses:
+                self.append_entry_rpc_responses[msg['MID']] = [msg['src']]
+            else:
+                self.append_entry_rpc_responses[msg['MID']].append(msg['src'])
         # we can commit and tell the user we have commited
-        if len(self.append_entry_rpc_responses[msg['MID']]) > len(self.others)/2:
+        if len(self.append_entry_rpc_responses[msg['MID']]) > len(self.others)/2 and "SENT" not in self.append_entry_rpc_responses[msg['MID']]:
             self.state_machine_values[msg['key']] = msg['value']
             self.state_machine_terms[msg['key']] = self.term
             self.state_machine_indexes[msg['key']] = len(self.state_machine_values)-1
-            # send an ok back to the client
             response = {"src": str(self.id), "dst": msg['client'], "leader": str(self.id), "type": "ok", "MID": msg['MID']}
             self.send(response)
-            self.append_entry_rpc_responses[msg['MID']] = {}
+            self.append_entry_rpc_responses[msg['MID']].append("SENT")
+            #print("we have sent the entry with MID: " + str(msg['MID']))
+            #print("the followers that have responded to it are: " + str(self.append_entry_rpc_responses))
 
 
         # basically here we check if majority of the servers have received the data message. 
