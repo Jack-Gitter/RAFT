@@ -120,9 +120,10 @@ class Replica:
             self.currtime = time.time()
         
 
+    # this is only working because we don't need to do another election, the if statement will never pass if leader fails and new election needs to happen
     def handle_vote_response(self, msg):
         self.votes.append(msg)
-        if len(self.votes) == len(self.others):
+        if len(self.votes) == len(self.others): # this is not right, we should just analyze if len(self.votes > majority still alive)
             self.analyze_votes()
             self.votes = []
 
