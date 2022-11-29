@@ -153,10 +153,10 @@ class Replica:
 
                 print("Received message '%s'" % (msg,), flush=True)
 
-                if msg['type'] == 'request_vote_rpc':
-                    self.respond_to_vote_request(msg)
-                elif msg['type'] == 'heartbeat':
+                if msg['type'] == 'heartbeat':
                     self.handle_heartbeat(msg)
+                elif msg['type'] == 'request_vote_rpc':
+                    self.respond_to_vote_request(msg)
                 elif msg['type'] == 'vote_response' and self.candidate:
                     self.handle_vote_response(msg)
                 elif msg['type'] == 'put':
