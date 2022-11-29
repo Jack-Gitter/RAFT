@@ -80,7 +80,6 @@ class Replica:
             
     def send_heartbeat(self):
         self.currtime = time.time()
-        self.election_timeout = random.uniform(1, 2)
         self.votes = []
         heartbeat = {"src": str(self.id), "dst": BROADCAST, "leader": str(self.id), "type": "heartbeat", "term": self.term, "MID": '-1'}
         print("sending heartbeat message")
@@ -159,7 +158,7 @@ class Replica:
 
             if self.leader:
                 self.election_timeout = random.uniform(1,2)
-                if time.time() - self.currtime >= self.election_timeout/2:
+                if time.time() - self.currtime >= .5:
                     self.send_heartbeat()
             elif len(socks) == 0 or time.time() - self.currtime >= self.election_timeout:
                 self.begin_election()
