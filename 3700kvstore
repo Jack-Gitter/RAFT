@@ -13,7 +13,7 @@ class Replica:
         self.follower = True
         self.leader = False
         self.candidate = False
-        self.election_timeout = random.uniform(1, 2)
+        self.election_timeout = random.uniform(.150, .300)
         self.term = 1
         self.log = {}
         self.votes = []
@@ -118,7 +118,7 @@ class Replica:
 
     def handle_heartbeat(self, msg):
         if msg['term'] >= self.term:
-            self.election_timeout = random.uniform(1, 2)
+            self.election_timeout = random.uniform(.150, .300)
             self.votes = []
             self.term = msg['term']
             self.follower = True
@@ -142,7 +142,7 @@ class Replica:
         while True:
             socks = []
             if self.leader:
-                socks = select.select([self.socket], [], [], .5)[0]
+                socks = select.select([self.socket], [], [], .1)[0]
             else:
                 socks = select.select([self.socket], [], [], self.election_timeout)[0]
 
@@ -167,13 +167,13 @@ class Replica:
                     self.replicate_log(msg)
 
             if self.leader:
-                self.election_timeout = random.uniform(1,2)
-                if time.time() - self.currtime >= .5:
+                self.election_timeout = random.uniform(.150,.300)
+                if time.time() - self.currtime >= .1:
                     self.send_heartbeat()
             elif len(socks) == 0 or time.time() - self.currtime >= self.election_timeout:
                 self.begin_election()
                 self.send_request_vote_RPC()
-                self.election_timeout = random.uniform(1, 2)
+                self.election_timeout = random.uniform(.150, .300)
                 self.currtime = time.time()
                 
                 
