@@ -35,8 +35,13 @@ class Replica:
         response = {"src": str(self.id), "dst": BROADCAST, "leader": str(self.leader_id), "type": "append_entry_rpc", "MID": msg['MID'], "key": msg['key'], "value": msg['value']}
         self.send(response)
 
+    # Need to send append entry RPC's to other replicas here
     def respond_to_put(self, msg):
-        self.log[msg['key']] = msg['value']
+        if self.leader:
+            self.log[msg['key']] = msg['value']
+            self.send_append_entry_rpc(msg)
+
+
         response = {}
 
         if self.leader_id != self.id:
@@ -47,7 +52,6 @@ class Replica:
         self.send(response)
 
         # Send append_entry_rpc to replicas so they can update their logs
-        self.send_append_entry_rpc(msg)
 
     def respond_to_get(self, msg):
         response = {}
