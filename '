@@ -19,7 +19,7 @@ class Replica:
         self.log = {} # turn this into key -> [values] since keys can be repeated
         self.state_machine = {}
 
-        self.rpc_responses = {} # from msg['MID'] -> number of responses // going to be from index # to [others]
+        self.rpc_responses = {} # from msg['MID'] -> number of responses // going to be from index # to number of responses 
 
         self.log_indicies = {} # from index -> key
         self.index_terms = {} # from index -> term number
@@ -45,6 +45,11 @@ class Replica:
 
     def send_append_entry_rpc(self, msg, last_idx):
         self.currtime = time.time()
+
+
+        # for each x in other, send them the response message but with THEIR corresponding last_idx
+
+
         response = {"src": str(self.id), "dst": BROADCAST, "leader": str(self.leader_id), "type": "append_entry_rpc", "MID": msg['MID'], "key": msg['key'], "value": msg['value'], 
                 "client": msg['src'], "index": last_idx}
         self.send(response)
@@ -65,8 +70,9 @@ class Replica:
                 self.log[msg['key']].append(msg['value'])
 
             last_index = self.get_last_log_idx()
-            self.rpc_responses[last_index] = []
+            self.rpc_responses[last_index] = 1;
             self.send_append_entry_rpc(msg, last_index)
+
 
         if self.leader_id != self.id:
             response = {"src": str(self.id), "dst": msg['src'], "leader": self.leader_id, "type": "redirect", "MID": msg['MID']} 
@@ -170,9 +176,8 @@ class Replica:
 
     def try_to_commit(self, msg):
 
-        self.rpc_responses[msg['index']].append(msg['src'])
-        self.replica_indicies[msg['src']] += 1
-        if len(self.rpc_responses[msg['index']]) == int(len(self.others)/2)+1:
+        self.rpc_responses[msg['index']] += 1
+        if self.rpc_responses[msg['index']] == int(len(self.others)/2)+1:
             if msg['key'] not in self.state_machine:
                 self.state_machine[msg['key']] = [msg['value']]
             else:
