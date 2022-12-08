@@ -155,10 +155,16 @@ class Replica:
         #print("the amount of responses that this key has gotten are: " + str(self.rpc_responses[msg['key']]))
         #print(str(int(len(self.others/2))), flush=True)
         #if self.rpc_responses[msg['key']] >= int(len(self.others) / 2):
+        
         if self.rpc_responses[msg['key']] == int(len(self.others)/2)+1:
+            follower_message = {"src": str(self.id), 'dst': BROADCAST, "leader": str(self.id), "MID": msg['MID'], "type": "commit_entry", "key": msg['key'], "value": msg['value']}
             self.state_machine[msg['key']] = msg['value']
             response = {"src": str(self.id), "dst": msg['client'], "leader": str(self.id), "type": "ok", "MID": msg['MID']}
             self.send(response)
+            self.send(follower_message);
+
+    def commit_entry(self, msg):
+        self.state_machine[msg['key']] = msg['value']
 
     def run(self):
         self.currtime = time.time()
@@ -180,16 +186,18 @@ class Replica:
                     self.handle_heartbeat(msg)
                 elif msg['type'] == 'get':
                     self.respond_to_get(msg)
+                elif msg['type'] == 'append_entry_rpc' and not self.leader:
+                    self.replicate_log(msg)
+                elif msg['type'] == 'append_entry_rpc_response' and self.leader:
+                    self.try_to_commit(msg)
                 elif msg['type'] == 'put':
                     self.respond_to_put(msg)
                 elif msg['type'] == 'request_vote_rpc':
                     self.respond_to_vote_request(msg)
-                elif msg['type'] == 'append_entry_rpc_response' and self.leader:
-                    self.try_to_commit(msg)
                 elif msg['type'] == 'vote_response' and self.candidate:
                     self.handle_vote_response(msg)
-                elif msg['type'] == 'append_entry_rpc' and not self.leader:
-                    self.replicate_log(msg)
+                elif msg['type'] == 'commit_entry' and not self.leader:
+                    self.commit_entry(msg)
 
 
             if self.leader:
