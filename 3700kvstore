@@ -41,6 +41,8 @@ class Replica:
     def send(self, message):
         self.socket.sendto(json.dumps(message).encode('utf-8'), ('localhost', self.port))
 
+    # change this method so that it loops over the others array and gets the key and value associated with the corresponding index in replica_indicies
+    # also make sure to change last_index to just the index that the follower is at
     def send_append_entry_rpc(self, msg, last_idx):
         self.currtime = time.time()
         response = {"src": str(self.id), "dst": BROADCAST, "leader": str(self.leader_id), "type": "append_entry_rpc", "MID": msg['MID'], "key": msg['key'], "value": msg['value'], 
@@ -53,7 +55,6 @@ class Replica:
             idx += len(arr)
         return idx;
 
-    # Need to send append entry RPC's to other replicas here
     def respond_to_put(self, msg):
         if self.leader:
             if msg['key'] not in self.log:
@@ -148,7 +149,6 @@ class Replica:
             self.leader_id = msg['leader']
             self.currtime = time.time()
 
-    # this is only working because we don't need to do another election, the if statement will never pass if leader fails and new election needs to happen
     def handle_vote_response(self, msg):
         self.votes.append(msg)
         self.analyze_votes()
@@ -165,7 +165,6 @@ class Replica:
         self.send(response)
 
     def try_to_commit(self, msg):
-
         self.rpc_responses[msg['index']] += 1
         self.replica_indicies[msg['src']] += 1
         if self.rpc_responses[msg['index']] == int(len(self.others)/2)+1:
