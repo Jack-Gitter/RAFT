@@ -41,13 +41,33 @@ class Replica:
     def send(self, message):
         self.socket.sendto(json.dumps(message).encode('utf-8'), ('localhost', self.port))
 
+    def get_key_from_index(self, index):
+        idx = -1
+        for key, arr in self.log.items():
+            for _ in arr:
+                idx+=1
+                if idx == index:
+                    return key
+
+    def get_value_from_index(self, index):
+        idx = -1
+        for _, arr in self.log.items():
+            for val in arr:
+                idx+=1
+                if idx == index:
+                    return val
+
     # change this method so that it loops over the others array and gets the key and value associated with the corresponding index in replica_indicies
     # also make sure to change last_index to just the index that the follower is at
-    def send_append_entry_rpc(self, msg, last_idx):
+    def send_append_entry_rpc(self, msg):
         self.currtime = time.time()
-        response = {"src": str(self.id), "dst": BROADCAST, "leader": str(self.leader_id), "type": "append_entry_rpc", "MID": msg['MID'], "key": msg['key'], "value": msg['value'], 
-                "client": msg['src'], "index": last_idx}
-        self.send(response)
+        for follower in self.others:
+            index = self.replica_indicies[follower]
+            key = self.get_key_from_index(index)
+            value = self.get_value_from_index(index)
+            response = {"src": str(self.id), "dst": follower, "leader": str(self.leader_id), "type": "append_entry_rpc", "MID": msg['MID'], "key": key, "value": value, 
+                    "client": msg['src'], "index": index}
+            self.send(response)
 
     def get_last_log_idx(self):
         idx = -1
@@ -64,7 +84,7 @@ class Replica:
 
             last_index = self.get_last_log_idx()
             self.rpc_responses[last_index] = 1
-            self.send_append_entry_rpc(msg, last_index)
+            self.send_append_entry_rpc(msg)
 
         if self.leader_id != self.id:
             response = {"src": str(self.id), "dst": msg['src'], "leader": self.leader_id, "type": "redirect", "MID": msg['MID']} 
