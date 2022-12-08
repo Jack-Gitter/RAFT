@@ -16,13 +16,11 @@ class Replica:
         self.election_timeout = random.uniform(.150, .300)
         self.term = 1
 
-        self.log = {} # turn this into key -> [values] since keys can be repeated
-        self.state_machine = {}
+        self.log = {} # key -> [values]
+        self.state_machine = {} # key -> [values]
 
-        self.rpc_responses = {} # from msg['MID'] -> number of responses // going to be from index # to [others]
+        self.rpc_responses = {} # from index -> number of responses 
 
-        self.log_indicies = {} # from index -> key
-        self.index_terms = {} # from index -> term number
         self.replica_indicies = {} # from replica numebr -> index
 
         for other in self.others:
@@ -50,10 +48,9 @@ class Replica:
         self.send(response)
 
     def get_last_log_idx(self):
-        idx = 0
+        idx = -1
         for _, arr in self.log.items():
             idx += len(arr)
-        idx-=1
         return idx;
 
     # Need to send append entry RPC's to other replicas here
@@ -65,7 +62,7 @@ class Replica:
                 self.log[msg['key']].append(msg['value'])
 
             last_index = self.get_last_log_idx()
-            self.rpc_responses[last_index] = []
+            self.rpc_responses[last_index] = 1
             self.send_append_entry_rpc(msg, last_index)
 
         if self.leader_id != self.id:
@@ -156,7 +153,6 @@ class Replica:
         self.votes.append(msg)
         self.analyze_votes()
 
-
     def replicate_log(self, msg):
         self.currtime = time.time()
         if msg['key'] not in self.log:
@@ -170,9 +166,9 @@ class Replica:
 
     def try_to_commit(self, msg):
 
-        self.rpc_responses[msg['index']].append(msg['src'])
+        self.rpc_responses[msg['index']] += 1
         self.replica_indicies[msg['src']] += 1
-        if len(self.rpc_responses[msg['index']]) == int(len(self.others)/2)+1:
+        if self.rpc_responses[msg['index']] == int(len(self.others)/2)+1:
             if msg['key'] not in self.state_machine:
                 self.state_machine[msg['key']] = [msg['value']]
             else:
@@ -210,7 +206,6 @@ class Replica:
                     self.respond_to_vote_request(msg)
                 elif msg['type'] == 'vote_response' and self.candidate:
                     self.handle_vote_response(msg)
-
 
             if self.leader:
                 self.election_timeout = random.uniform(.150,.300)
