@@ -16,10 +16,17 @@ class Replica:
         self.election_timeout = random.uniform(.150, .300)
         self.term = 1
 
-        self.log = {}
+        self.log = {} # turn this into key -> [values] since keys can be repeated
         self.state_machine = {}
-        self.rpc_responses = {} # from msg['MID'] -> number of responses
 
+        self.rpc_responses = {} # from msg['MID'] -> number of responses // going to be from index # to number of responses 
+
+        self.log_indicies = {} # from index -> key
+        self.replica_indicies = {} # from replica numebr -> index
+
+        for other in self.others:
+            self.replica_indicies[other] = 0
+            
         self.votes = []
         self.voted_for = None
         self.currtime = 0
@@ -44,28 +51,26 @@ class Replica:
     # Need to send append entry RPC's to other replicas here
     def respond_to_put(self, msg):
         if self.leader:
-            if msg['MID'] not in self.rpc_responses:
-                self.send_append_entry_rpc(msg)
-            self.log[msg['key']] = msg['value']
+            if msg['key'] not in self.log:
+                self.log[msg['key']] = [msg['value']]
+            else:
+                self.log[msg['key']].append(msg['value'])
+            self.send_append_entry_rpc(msg)
             self.rpc_responses[msg['MID']] = 1;
-
-        #response = {}
 
         if self.leader_id != self.id:
             response = {"src": str(self.id), "dst": msg['src'], "leader": self.leader_id, "type": "redirect", "MID": msg['MID']} 
             self.send(response)
-        #else:
-        #    response = {"src": str(self.id), "dst": msg['src'], "leader": str(self.id), "type": "ok", "MID": msg['MID']}
-
-
-        # Send append_entry_rpc to replicas so they can update their logs
 
     def respond_to_get(self, msg):
         response = {}
         if self.leader_id != self.id:
             response = {"src": str(self.id), "dst": msg['src'], "leader": self.leader_id, "type": "redirect", "MID": msg['MID']} 
         else:
-            value = self.state_machine[msg['key']]
+            idx = 0
+            if msg['key'] in self.state_machine:
+                idx = len(self.state_machine[msg['key']])-1
+            value = self.state_machine[msg['key']][idx]
             response = {"src": str(self.id), "dst": msg['src'], "leader": str(self.id), "type": "ok", "MID": msg['MID'], "value": str(value)}
         self.send(response)
 
@@ -83,7 +88,7 @@ class Replica:
                 "leader": self.leader_id,
                 'type': 'request_vote_rpc',
                 'MID': '1',
-                "last_log_idx": str(len(self.log)-1),
+                "last_log_idx": 10,
                 "term":self.term}
             
         if self.voted_for == None:
@@ -145,7 +150,10 @@ class Replica:
 
     def replicate_log(self, msg):
         self.currtime = time.time()
-        self.log[msg['key']] = msg['value']
+        if msg['key'] not in self.log:
+            self.log[msg['key']] = [msg['value']]
+        else:
+            self.log[msg['key']].append(msg['value'])
         response = {"src": str(self.id), "dst": self.leader_id, "leader": self.leader_id, "MID":msg['MID'], 
                 "type": "append_entry_rpc_response", "key": msg['key'], "value": msg['value'], "client": msg['client']}
         self.send(response)
@@ -155,13 +163,19 @@ class Replica:
         
         if self.rpc_responses[msg['MID']] == int(len(self.others)/2)+1:
             follower_message = {"src": str(self.id), 'dst': BROADCAST, "leader": str(self.id), "MID": msg['MID'], "type": "commit_entry", "key": msg['key'], "value": msg['value']}
-            self.state_machine[msg['key']] = msg['value']
+            if msg['key'] not in self.state_machine:
+                self.state_machine[msg['key']] = [msg['value']]
+            else:
+                self.state_machine[msg['key']].append(msg['value'])
             response = {"src": str(self.id), "dst": msg['client'], "leader": str(self.id), "type": "ok", "MID": msg['MID']}
             self.send(response)
             self.send(follower_message);
 
     def commit_entry(self, msg):
-        self.state_machine[msg['key']] = msg['value']
+        if msg['key'] not in self.state_machine:
+            self.state_machine[msg['key']] = [msg['value']]
+        else:
+            self.state_machine[msg['key']].append(msg['value'])
 
     def run(self):
         self.currtime = time.time()
