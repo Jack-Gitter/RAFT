@@ -44,7 +44,8 @@ class Replica:
     # Need to send append entry RPC's to other replicas here
     def respond_to_put(self, msg):
         if self.leader:
-            self.send_append_entry_rpc(msg)
+            if msg['MID'] not in self.rpc_responses:
+                self.send_append_entry_rpc(msg)
             self.log[msg['key']] = msg['value']
             self.rpc_responses[msg['MID']] = 1;
 
