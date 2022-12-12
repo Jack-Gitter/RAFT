@@ -1,1 +1,11 @@
-contents
+high level approach:
+For a high level approach, the project first tackled the election process in order to get basic functionality operational. Booleans were used to keep track of replica state, and an array was used to keep track of any votes that a replica recieved during an election period. If a replica received a majority of votes, it would then send out heartbeat messages and the other replicas would flip their booleans to reflect follower state. The heartbeat message then had to be implemented along with a timeout. A random number between .150 and .300 is chosen for each replica as described in the raft paper for election timeout. The leader sends heartbeats at a maximum of .1 seconds, so that all replicas should receieve a hearbeat message before their election timeout window expires. Moving along to log replication, two dictionaries were used. One for the log, and one for the state machine. These dictionaries went from string to string representing the msg['key'] and msg['value'] values respectively. This made it very easy to look up entries for get requests and easy to put things for put requests. Log replication was then implemented so that replicas as well update their logs and state machine according to the raft protocol, i.e after the leader has updated 
+
+challenges:
+Some challenges that were faced was getting the election to work just right, as it is a key factor in choosing the first and subsequent leaders which has a massive impact on storing logs as all messages go through the leader. At first a more complex approach was attempted, but after simplifying replica state to boolean values the problem became much simpler. Another set of challenges that were faced was log replication on faulty networks. This functionality unfortunately is still not fully operational, as there was great difficulty in attempting to keep track of each log entry spot for each given replica, and responding accordingly to the replicas based on which indicies they have commited to their log and state machine
+
+good properties: 
+Some good properties of this program are that finding and inserting values are O(1), the codestyle is extremely simple to understand and well documented, and it does not hard code the initial leader, but rather allows for an initial election process to ensue
+
+testing:
+For testing, the test suite was ran against the code in order to figure out sticking points and where improvements could be made. The log output was analyzed thoroughly in attempts to get all functionality working and to debug code
