@@ -6,30 +6,25 @@ BROADCAST = "FFFF"
 
 class Replica:
     def __init__(self, port, id, others):
-        self.port = port
-        self.id = id
-        self.others = others
-        self.leader_id = "FFFF"
-        self.follower = True
-        self.leader = False
-        self.candidate = False
-        self.election_timeout = random.uniform(.150, .300)
-        self.term = 1
+        self.port = port # Port number for this replica
+        self.id = id # ID number for this replica
+        self.others = others # Array of other replica IDs
+        self.leader_id = "FFFF" # Initial leader ID set to unknown
+        self.follower = True # Initial follower state set to true
+        self.leader = False # Initial leader state set to false
+        self.candidate = False # Initial candidate state set to false
+        self.election_timeout = random.uniform(.150, .300) # Initial random election timeout value
+        self.term = 1 # Terms start at 1
 
-        self.log = {} # key -> [values]
-        self.state_machine = {} # key -> [values]
+        self.log = {} # Log storing values from string -> string which are the msg['key'] and msg['value'] respectively
+        self.state_machine = {} # State machine where logs messages are commited
+        self.rpc_responses = {} # Number of append entry rpc responses a leader has received for a given message
 
-        self.rpc_responses = {} # from index -> number of responses 
+        self.votes = [] # votes received during a given election round
+        self.voted_for = None # Boolean to determine if this replica has voted for someone in the current round
+        self.currtime = 0 # the current time until experiation of the election timeout
 
-        self.replica_indicies = {} # from replica numebr -> index
-
-        for other in self.others:
-            self.replica_indicies[other] = 0
-            
-        self.votes = []
-        self.voted_for = None
-        self.currtime = 0
-
+        # Intialize socket
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.bind(('localhost', 0))
 
@@ -38,100 +33,76 @@ class Replica:
         self.send(hello)
         print("Sent hello message: %s" % hello, flush=True)
 
+    # Method to send messages to other replicas or clients
     def send(self, message):
         self.socket.sendto(json.dumps(message).encode('utf-8'), ('localhost', self.port))
 
-    def get_key_from_index(self, index):
-        idx = -1
-        for key, arr in self.log.items():
-            for _ in arr:
-                idx+=1
-                if idx == index:
-                    return key
-
-    def get_value_from_index(self, index):
-        idx = -1
-        for _, arr in self.log.items():
-            for val in arr:
-                idx+=1
-                if idx == index:
-                    return val
-
-    # change this method so that it loops over the others array and gets the key and value associated with the corresponding index in replica_indicies
-    # also make sure to change last_index to just the index that the follower is at
+    # Method to send append entry rpcs to other replicas
     def send_append_entry_rpc(self, msg):
-        self.currtime = time.time()
-        for follower in self.others:
-            index = self.replica_indicies[follower]
-            key = self.get_key_from_index(index)
-            value = self.get_value_from_index(index)
-            response = {"src": str(self.id), "dst": follower, "leader": str(self.leader_id), "type": "append_entry_rpc", "MID": msg['MID'], "key": key, "value": value, 
-                    "client": msg['src'], "index": index}
-            self.send(response)
+        response = {"src": str(self.id), "dst": BROADCAST, "leader": str(self.leader_id),
+                "type": "append_entry_rpc", "MID": msg['MID'], "key": msg['key'], "value": msg['value'], 
+                "client": msg['src']}
+        self.send(response)
 
-    def get_last_log_idx(self):
-        idx = -1
-        for _, arr in self.log.items():
-            idx += len(arr)
-        return idx;
-
+    # Respond to put messages
     def respond_to_put(self, msg):
+        # If we are the leader, then put this entry in our log and send append entry rpc message
         if self.leader:
-            if msg['key'] not in self.log:
-                self.log[msg['key']] = [msg['value']]
-            else:
-                self.log[msg['key']].append(msg['value'])
-
-            last_index = self.get_last_log_idx()
-            self.rpc_responses[last_index] = 1
             self.send_append_entry_rpc(msg)
+            self.log[msg['key']] = msg['value']
+            self.rpc_responses[msg['key']] = 1;
 
+        # If we are not the leader, send a redirect message
         if self.leader_id != self.id:
             response = {"src": str(self.id), "dst": msg['src'], "leader": self.leader_id, "type": "redirect", "MID": msg['MID']} 
             self.send(response)
 
+    # Respond to get messages 
     def respond_to_get(self, msg):
         response = {}
+        # If we are not the leader, redirect
         if self.leader_id != self.id:
             response = {"src": str(self.id), "dst": msg['src'], "leader": self.leader_id, "type": "redirect", "MID": msg['MID']} 
+        # If we are the leader, retrieve the message from our state machine
         else:
-            idx = len(self.state_machine[msg['key']])-1
-            value = self.state_machine[msg['key']][idx]
+            value = self.state_machine[msg['key']]
             response = {"src": str(self.id), "dst": msg['src'], "leader": str(self.id), "type": "ok", "MID": msg['MID'], "value": str(value)}
         self.send(response)
 
+    # Method to start a new election and set booleans accordingly
     def begin_election(self):
-        print("starting new election -------------------------------", flush=True)
         self.term+=1
         self.voted_for = None
         self.candidate = True
         self.follower = False
         self.leader = False
 
+    # Method to send request vote rpc's to other replicas when election timeout has expried
     def send_request_vote_RPC(self):
         request_vote_rpc = {"src": str(self.id),
                 "dst": BROADCAST,
                 "leader": self.leader_id,
                 'type': 'request_vote_rpc',
                 'MID': '1',
-                "last_log_idx": 10,
+                "last_log_idx": str(len(self.log)-1),
                 "term":self.term}
             
+        # Check to see if we have voted for anyone in the current term
         if self.voted_for == None:
             self.voted_for = self.id
             self_vote = {"vote_granted": True}
             self.votes.append(self_vote)
 
-        print("sending vote request '%s'" % (request_vote_rpc,), flush=True)
         self.send(request_vote_rpc)
             
+    # Send a "heartbeat" message to the other replicas so that they know not to start a new election
     def send_heartbeat(self):
         self.currtime = time.time()
         self.votes = []
         heartbeat = {"src": str(self.id), "dst": BROADCAST, "leader": str(self.id), "type": "heartbeat", "term": self.term, "MID": '-1'}
-        print("sending heartbeat message", flush=True)
         self.send(heartbeat)
 
+    # Analyze votes that come in from request_vote_rpcs
     def analyze_votes(self):
         count = 0
         for vote in self.votes:
@@ -143,9 +114,9 @@ class Replica:
             self.follower = False
             self.voted_for = None
             self.leader_id = self.id
-            print("I Am the leader!!!", flush=True)
             self.send_heartbeat()
 
+    # Respond to vote reqeuests
     def respond_to_vote_request(self, msg):
         vote_response = False
 
@@ -154,9 +125,9 @@ class Replica:
             
         response = {"src": str(self.id), "dst": msg['src'], "leader": self.leader_id, "MID":"1", "type": "vote_response", "vote_granted": vote_response}
         self.voted_for = msg['src']
-        print("sending vote response '%s'" % (response,), flush=True)
         self.send(response)
 
+    # For replicas, make sure to reset the election timeout and set themselves to followers if they receive a heartbeat message
     def handle_heartbeat(self, msg):
         if msg['term'] >= self.term:
             self.election_timeout = random.uniform(.150, .300)
@@ -169,41 +140,48 @@ class Replica:
             self.leader_id = msg['leader']
             self.currtime = time.time()
 
+    # This is for anyone in candidate state, handling vote responses from request_vote_rpcs
     def handle_vote_response(self, msg):
         self.votes.append(msg)
         self.analyze_votes()
 
+    # Replicate log message sent by leader in a append_entry_rpc
     def replicate_log(self, msg):
-        self.currtime = time.time()
-        if msg['key'] not in self.log:
-            self.log[msg['key']] = [msg['value']]
-        else:
-            self.log[msg['key']].append(msg['value'])
-
+        self.log[msg['key']] = msg['value']
         response = {"src": str(self.id), "dst": self.leader_id, "leader": self.leader_id, "MID":msg['MID'], 
-                "type": "append_entry_rpc_response", "key": msg['key'], "value": msg['value'], "client": msg['client'], "index": msg['index']}
+                "type": "append_entry_rpc_response", "key": msg['key'], "value": msg['value'], "client": msg['client']}
         self.send(response)
 
+    # Attemp to commit a log message to the state machine (for leader) by checking if a quorum has been reached
     def try_to_commit(self, msg):
-        self.rpc_responses[msg['index']] += 1
-        self.replica_indicies[msg['src']] += 1
-        if self.rpc_responses[msg['index']] == int(len(self.others)/2)+1:
-            if msg['key'] not in self.state_machine:
-                self.state_machine[msg['key']] = [msg['value']]
-            else:
-                self.state_machine[msg['key']].append(msg['value'])
+        self.rpc_responses[msg['key']] += 1
+        
+        if self.rpc_responses[msg['key']] == int(len(self.others)/2)+1:
+            follower_message = {"src": str(self.id), 'dst': BROADCAST, "leader": str(self.id), "MID": msg['MID'],
+                    "type": "commit_entry", "key": msg['key'], "value": msg['value']}
+            self.state_machine[msg['key']] = msg['value']
             response = {"src": str(self.id), "dst": msg['client'], "leader": str(self.id), "type": "ok", "MID": msg['MID']}
             self.send(response)
+            self.send(follower_message);
 
+    # Commit an entry to the state machine (for followers)
+    def commit_entry(self, msg):
+        self.state_machine[msg['key']] = msg['value']
+
+    # Main running loop
     def run(self):
+        # Initialize currtime so that election timeouts don't occur right away
         self.currtime = time.time()
         while True:
             socks = []
+            # If we are the leader, then set the timeout quicker than the election timeout so that we can send heartbeats
             if self.leader:
                 socks = select.select([self.socket], [], [], .1)[0]
+            # Otherwise set timeout to random interval 
             else:
                 socks = select.select([self.socket], [], [], self.election_timeout)[0]
 
+            # For each message receieved handle accordingly
             for sock in socks:
                 data, addr = sock.recvfrom(65535) 
                 msg = data.decode('utf-8')
@@ -225,11 +203,18 @@ class Replica:
                     self.respond_to_vote_request(msg)
                 elif msg['type'] == 'vote_response' and self.candidate:
                     self.handle_vote_response(msg)
+                elif msg['type'] == 'commit_entry' and not self.leader:
+                    self.commit_entry(msg)
 
+
+            # If we are the leader
             if self.leader:
+                # reset the election timeout 
                 self.election_timeout = random.uniform(.150,.300)
+                # if we can send a new heartbeat, send
                 if time.time() - self.currtime >= .1:
                     self.send_heartbeat()
+            # if we are not the leader and election timeout has expired start a new election process
             elif len(socks) == 0 or time.time() - self.currtime >= self.election_timeout:
                 self.begin_election()
                 self.send_request_vote_RPC()
@@ -247,3 +232,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
     replica = Replica(args.port, args.id, args.others)
     replica.run()
+
