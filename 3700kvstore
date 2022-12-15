@@ -85,6 +85,10 @@ class Replica:
             response = {"src": str(self.id), "dst": msg['src'], "leader": self.leader_id, "type": "redirect", "MID": msg['MID']} 
         # if we are the leader then retrieve the last value from the state machine and return it to the client for a given key
         else:
+            if msg['key'] not in self.state_machine:
+                response = {"src": str(self.id), "dst": msg['src'], "leader": str(self.id), "type": "ok", "MID": msg['MID'], "value": ""}
+                self.send(response)
+                return
             idx = len(self.state_machine[msg['key']])-1
             value = self.state_machine[msg['key']][idx]
             response = {"src": str(self.id), "dst": msg['src'], "leader": str(self.id), "type": "ok", "MID": msg['MID'], "value": str(value)}
